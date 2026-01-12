@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>文献阅读表</title>
+
+  <!-- Tailwind CSS v3 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide 图标库 -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.544.0/dist/umd/lucide.min.js"></script>
+  <!-- SheetJS - Excel导出库 -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#10b981',
+            secondary: '#6b7280',
+            danger: '#ef4444',
+            warning: '#f59e0b',
+            success: '#10b981',
+            light: '#f3f4f6',
+            dark: '#1f2937'
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto { content-visibility: auto; }
+      .text-wrap { word-wrap: break-word; }
+      .transition-all {
+        transition-property: all;
+        transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+        transition-duration: 300ms;
+      }
+      .editable-title {
+        outline: none;
+        border-bottom: 2px solid transparent;
+      }
+      .editable-title:focus {
+        border-bottom: 2px solid rgba(255, 255, 255, 0.5);
+      }
+      .editable-cell {
+        position: relative;
+        cursor: pointer;
+        transition: background-color 0.2s;
+      }
+      .editable-cell:hover {
+        background-color: rgba(16, 185, 129, 0.05);
+      }
+      .editing { padding: 0 !important; }
+      .status-select {
+        cursor: pointer;
+        border: none;
+        outline: none;
+        transition: all 0.2s;
+      }
+      .status-select:hover { filter: brightness(1.05); }
+
+      .editable-header {
+        cursor: pointer;
+        position: relative;
+        user-select: none;
+      }
+      .editable-header:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+      }
+      /* 删除列按钮默认隐藏，悬停出现 */
+      .delete-col-btn { opacity: 0; transition: opacity 0.2s; }
+      th.editable-header:hover .delete-col-btn { opacity: 1; }
+    }
+  </style>
+</head>
+
+<body class="bg-gray-50 text-gray-800 font-sans">
+  <div class="min-h-screen flex flex-col">
+    <!-- 顶部导航栏 -->
+    <header class="bg-primary text-white shadow-md">
+      <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+        <div class="flex items-center">
+          <i data-lucide="book-open" class="mr-2"></i>
+          <h1 id="appTitle" class="text-2xl font-bold editable-title cursor-pointer" contenteditable="true">文献阅读表</h1>
+          <button id="saveTitleBtn" class="ml-2 text-white/80 hover:text-white transition-all hidden">
+            <i data-lucide="check" class="h-4 w-4"></i>
+          </button>
+        </div>
+
+        <!-- 右侧按钮区：新增列在“添加新行”左边 -->
+        <div class="flex space-x-4">
+          <button id="addColumnBtn" class="bg-white text-primary px-4 py-2 rounded-md flex items-center hover:bg-gray-100 transition-all">
+            <i data-lucide="columns-3" class="mr-2 h-4 w-4"></i>
+            新增列
+          </button>
+
+          <button id="addNewRowTopBtn" class="bg-white text-primary px-4 py-2 rounded-md flex items-center hover:bg-gray-100 transition-all">
+            <i data-lucide="plus" class="mr-2 h-4 w-4"></i>
+            添加新行
+          </button>
+
+          <button id="exportExcelBtn" class="bg-white text-primary px-4 py-2 rounded-md flex items-center hover:bg-gray-100 transition-all">
+            <i data-lucide="download" class="mr-2 h-4 w-4"></i>
+            导出Excel
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="flex-grow container mx-auto px-4 py-6">
+      <div class="bg-white rounded-lg shadow-md overflow-hidden">
+        <div class="overflow-x-auto">
+          <!-- 关键：table-auto + min-w，避免挤压重叠；表头不换行；内容按列控制换行 -->
+          <table id="literatureTable" class="w-full table-auto min-w-[1200px]">
+            <thead class="bg-primary text-white">
+              <tr id="headerRow">
+                <th class="px-4 py-3 text-left w-12 whitespace-nowrap" data-colkey="__index">序号</th>
+
+                <!-- 固定列（表头不换行：whitespace-nowrap） -->
+                <th class="px-4 py-3 text-left editable-header whitespace-nowrap" data-colkey="title">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="header-text">论文标题</span>
+                    <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="title" title="删除该列（隐藏）">
+                      <i data-lucide="trash-2" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                </th>
+
+                <th class="px-4 py-3 text-left editable-header whitespace-nowrap" data-colkey="authors">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="header-text">作者</span>
+                    <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="authors" title="删除该列（隐藏）">
+                      <i data-lucide="trash-2" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                </th>
+
+                <th class="px-4 py-3 text-left w-20 editable-header whitespace-nowrap" data-colkey="year">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="header-text">年份</span>
+                    <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="year" title="删除该列（隐藏）">
+                      <i data-lucide="trash-2" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                </th>
+
+                <th class="px-4 py-3 text-left editable-header whitespace-nowrap" data-colkey="journal">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="header-text">发表期刊</span>
+                    <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="journal" title="删除该列（隐藏）">
+                      <i data-lucide="trash-2" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                </th>
+
+                <th class="px-4 py-3 text-left editable-header whitespace-nowrap" data-colkey="improvement">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="header-text">改进点</span>
+                    <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="improvement" title="删除该列（隐藏）">
+                      <i data-lucide="trash-2" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                </th>
+
+                <th class="px-4 py-3 text-left editable-header whitespace-nowrap" data-colkey="innovation">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="header-text">创新点</span>
+                    <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="innovation" title="删除该列（隐藏）">
+                      <i data-lucide="trash-2" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                </th>
+
+                <th class="px-4 py-3 text-left editable-header whitespace-nowrap" data-colkey="method">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="header-text">核心方法</span>
+                    <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="method" title="删除该列（隐藏）">
+                      <i data-lucide="trash-2" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                </th>
+
+                <th class="px-4 py-3 text-left editable-header whitespace-nowrap" data-colkey="dataset">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="header-text">数据集</span>
+                    <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="dataset" title="删除该列（隐藏）">
+                      <i data-lucide="trash-2" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                </th>
+
+                <th class="px-4 py-3 text-left editable-header whitespace-nowrap" data-colkey="performance">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="header-text">性能指标</span>
+                    <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="performance" title="删除该列（隐藏）">
+                      <i data-lucide="trash-2" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                </th>
+
+                <th class="px-4 py-3 text-left editable-header whitespace-nowrap" data-colkey="notes">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="header-text">笔记</span>
+                    <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="notes" title="删除该列（隐藏）">
+                      <i data-lucide="trash-2" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                </th>
+
+                <th class="px-4 py-3 text-left w-24 editable-header whitespace-nowrap" data-colkey="status">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="header-text">阅读状态</span>
+                    <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="status" title="删除该列（隐藏）">
+                      <i data-lucide="trash-2" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                </th>
+
+                <th class="px-4 py-3 text-left w-24 whitespace-nowrap" data-colkey="__actions">操作</th>
+              </tr>
+            </thead>
+
+            <tbody id="tableBody"></tbody>
+
+            <tfoot id="tableFooter" class="bg-gray-50">
+              <tr>
+                <td colspan="999" class="px-4 py-3 text-center">
+                  <button id="addNewRowBtn" class="bg-primary text-white px-4 py-2 rounded-md flex items-center mx-auto hover:bg-primary/90 transition-all">
+                    <i data-lucide="plus" class="mr-2 h-4 w-4"></i>
+                    添加新行
+                  </button>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div id="emptyState" class="py-12 text-center hidden">
+          <i data-lucide="file-text" class="mx-auto h-12 w-12 text-gray-400"></i>
+          <p class="mt-2 text-gray-500">暂无文献记录</p>
+          <p class="mt-1 text-gray-400 text-sm">点击上方或下方“添加新行”按钮开始记录</p>
+        </div>
+      </div>
+    </main>
+
+    <footer class="bg-gray-100 border-t border-gray-200 py-4">
+      <div class="container mx-auto px-4 text-center text-gray-600 text-sm">
+        文献阅读表 &copy; 2025
+      </div>
+    </footer>
+  </div>
+
+  <!-- 删除确认模态框 -->
+  <div id="deleteModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+      <div class="p-6">
+        <h3 class="text-lg font-bold text-gray-800 mb-4">确认删除</h3>
+        <p class="text-gray-600 mb-6">您确定要删除这条记录吗？此操作无法撤销。</p>
+        <div class="flex justify-end space-x-3">
+          <button id="cancelDeleteBtn" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-all">
+            取消
+          </button>
+          <button id="confirmDeleteBtn" class="px-4 py-2 bg-danger text-white rounded-md hover:bg-danger/90 transition-all">
+            确认删除
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg p-4 transform translate-y-20 opacity-0 transition-all duration-300 z-50 max-w-sm">
+    <div class="flex items-center">
+      <div id="toastIcon" class="mr-3"></div>
+      <div id="toastMessage" class="text-sm font-medium text-gray-800"></div>
+    </div>
+  </div>
+
+  <script>
+    lucide.createIcons();
+
+    // =========================
+    // 数据与配置
+    // =========================
+    let literatureData = [];
+    let deleteId = null;
+
+    // 自定义列名（覆盖 label）：[{ key, text }]
+    let customHeaders = [];
+
+    // 自定义列定义：[{ key:'col_xxx', label:'DOI' }]
+    let customColumns = [];
+
+    // 隐藏（删除）列：按 key 存
+    let hiddenColKeys = [];
+
+    // 标题编辑
+    let originalTitle = '';
+    let originalHeaderValue = '';
+
+    // 只有这些“长文本列”允许换行
+    const longTextKeys = new Set(['title', 'improvement', 'innovation', 'method', 'notes']);
+
+    const fixedColumns = [
+      { key: 'title', label: '论文标题' },
+      { key: 'authors', label: '作者' },
+      { key: 'year', label: '年份' },
+      { key: 'journal', label: '发表期刊' },
+      { key: 'improvement', label: '改进点' },
+      { key: 'innovation', label: '创新点' },
+      { key: 'method', label: '核心方法' },
+      { key: 'dataset', label: '数据集' },
+      { key: 'performance', label: '性能指标' },
+      { key: 'notes', label: '笔记' },
+      { key: 'status', label: '阅读状态', isStatus: true }
+    ];
+
+    function getAllColumns() {
+      return [...fixedColumns, ...customColumns];
+    }
+
+    // DOM
+    const tableBody = document.getElementById('tableBody');
+    const emptyState = document.getElementById('emptyState');
+    const deleteModal = document.getElementById('deleteModal');
+    const toast = document.getElementById('toast');
+    const toastIcon = document.getElementById('toastIcon');
+    const toastMessage = document.getElementById('toastMessage');
+
+    const exportExcelBtn = document.getElementById('exportExcelBtn');
+    const cancelDeleteBtn = document.getElementById('cancelDeleteBtn');
+    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+
+    // =========================
+    // localStorage
+    // =========================
+    function loadData() {
+      const saved = localStorage.getItem('yoloLiteratureData');
+      literatureData = saved ? JSON.parse(saved) : [];
+    }
+    function saveData() {
+      localStorage.setItem('yoloLiteratureData', JSON.stringify(literatureData));
+    }
+
+    function loadCustomTitle() {
+      const appTitleEl = document.getElementById('appTitle');
+      const savedTitle = localStorage.getItem('yoloLiteratureTitle');
+
+      const newDefault = '文献阅读表';
+      const oldDefault = 'YOLO改进文献阅读表';
+
+      if (!savedTitle) {
+        appTitleEl.textContent = newDefault;
+        return;
+      }
+      if (savedTitle === oldDefault) {
+        appTitleEl.textContent = newDefault;
+        localStorage.setItem('yoloLiteratureTitle', newDefault);
+        return;
+      }
+      appTitleEl.textContent = savedTitle;
+    }
+    function saveCustomTitle(title) {
+      localStorage.setItem('yoloLiteratureTitle', title);
+    }
+
+    function loadCustomHeaders() {
+      const saved = localStorage.getItem('yoloLiteratureHeadersV2');
+      customHeaders = saved ? JSON.parse(saved) : [];
+      applyCustomHeaders();
+    }
+    function saveCustomHeaders() {
+      localStorage.setItem('yoloLiteratureHeadersV2', JSON.stringify(customHeaders));
+    }
+
+    function loadCustomColumns() {
+      const saved = localStorage.getItem('yoloLiteratureCustomColumns');
+      customColumns = saved ? JSON.parse(saved) : [];
+    }
+    function saveCustomColumns() {
+      localStorage.setItem('yoloLiteratureCustomColumns', JSON.stringify(customColumns));
+    }
+
+    function loadHiddenColKeys() {
+      const saved = localStorage.getItem('yoloLiteratureHiddenColKeys');
+      hiddenColKeys = saved ? JSON.parse(saved) : [];
+    }
+    function saveHiddenColKeys() {
+      localStorage.setItem('yoloLiteratureHiddenColKeys', JSON.stringify(hiddenColKeys));
+    }
+
+    function makeColKey() {
+      return 'col_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    }
+
+    // =========================
+    // 表头（自定义列插入 / 自定义标题应用）
+    // =========================
+    function applyCustomHeaders() {
+      customHeaders.forEach(h => {
+        const th = document.querySelector(`th[data-colkey="${CSS.escape(h.key)}"]`);
+        if (!th) return;
+        const span = th.querySelector('.header-text');
+        if (span) span.textContent = h.text;
+      });
+
+      // 自定义列（动态 th）也要同步 label
+      customColumns.forEach(c => {
+        const override = customHeaders.find(h => h.key === c.key);
+        if (override && override.text) c.label = override.text;
+      });
+    }
+
+    function renderCustomHeaderColumns() {
+      const headerRow = document.getElementById('headerRow');
+      if (!headerRow) return;
+
+      const actionTh = headerRow.querySelector('th[data-colkey="__actions"]');
+      if (!actionTh) return;
+
+      // 清理旧的自定义列 th
+      headerRow.querySelectorAll('th[data-colkey^="col_"]').forEach(th => th.remove());
+
+      customColumns.forEach(col => {
+        const th = document.createElement('th');
+        // 表头不换行：whitespace-nowrap
+        th.className = 'px-4 py-3 text-left editable-header whitespace-nowrap';
+        th.setAttribute('data-colkey', col.key);
+
+        th.innerHTML = `
+          <div class="flex items-center justify-between gap-2">
+            <span class="header-text">${escapeHtml(col.label)}</span>
+            <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="${escapeHtml(col.key)}" title="删除该列（隐藏）">
+              <i data-lucide="trash-2" class="h-4 w-4"></i>
+            </button>
+          </div>
+        `;
+
+        headerRow.insertBefore(th, actionTh);
+      });
+
+      applyCustomHeaders();
+      applyHiddenColumnsByKey();
+      bindDeleteColEventsByKey();
+      lucide.createIcons();
+    }
+
+    // =========================
+    // 隐藏列（删除列）：按 key
+    // =========================
+    function applyHiddenColumnsByKey() {
+      hiddenColKeys.forEach(key => {
+        const th = document.querySelector(`th[data-colkey="${CSS.escape(key)}"]`);
+        if (th) th.classList.add('hidden');
+      });
+
+      document.querySelectorAll('#tableBody tr').forEach(row => {
+        hiddenColKeys.forEach(key => {
+          const td = row.querySelector(`td[data-colkey="${CSS.escape(key)}"]`);
+          if (td) td.classList.add('hidden');
+        });
+      });
+    }
+
+    function bindDeleteColEventsByKey() {
+      document.querySelectorAll('.delete-col-btn').forEach(btn => {
+        const clone = btn.cloneNode(true);
+        btn.parentNode.replaceChild(clone, btn);
+      });
+
+      document.querySelectorAll('.delete-col-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const key = btn.getAttribute('data-colkey');
+          if (!key) return;
+
+          if (!hiddenColKeys.includes(key)) {
+            hiddenColKeys.push(key);
+            saveHiddenColKeys();
+          }
+          applyHiddenColumnsByKey();
+          showToast('success', '该列已删除（隐藏）');
+        });
+      });
+    }
+
+    // =========================
+    // 表格渲染
+    // =========================
+    function renderTable() {
+      tableBody.innerHTML = '';
+
+      if (literatureData.length === 0) {
+        emptyState.classList.remove('hidden');
+        document.getElementById('tableFooter').classList.add('hidden');
+        return;
+      }
+
+      emptyState.classList.add('hidden');
+      document.getElementById('tableFooter').classList.remove('hidden');
+
+      const cols = getAllColumns();
+
+      literatureData.forEach((item, index) => {
+        const row = document.createElement('tr');
+        row.className = 'border-b border-gray-200 hover:bg-gray-50 transition-all';
+        row.setAttribute('data-id', item.id);
+
+        let html = `<td class="px-4 py-3 text-sm font-medium whitespace-nowrap" data-colkey="__index">${index + 1}</td>`;
+
+        cols.forEach(c => {
+          if (c.isStatus) {
+            const status = item.status || '未读';
+            html += `
+              <td class="px-4 py-3 text-sm whitespace-nowrap" data-colkey="status">
+                <select class="status-select px-2 py-1 rounded-full text-xs font-medium ${getStatusClass(status)}" data-field="status">
+                  <option value="未读" ${status === '未读' ? 'selected' : ''}>未读</option>
+                  <option value="在读" ${status === '在读' ? 'selected' : ''}>在读</option>
+                  <option value="已读" ${status === '已读' ? 'selected' : ''}>已读</option>
+                </select>
+              </td>
+            `;
+          } else {
+            const v = item[c.key] || '';
+
+            const isLong = longTextKeys.has(c.key); // 只有这些列允许换行
+            const tdClass = isLong
+              ? 'px-4 py-3 text-sm editable-cell whitespace-normal break-words'
+              : 'px-4 py-3 text-sm editable-cell whitespace-nowrap';
+
+            html += `<td class="${tdClass}" data-field="${escapeHtml(c.key)}" data-colkey="${escapeHtml(c.key)}">${escapeHtml(v)}</td>`;
+          }
+        });
+
+        html += `
+          <td class="px-4 py-3 text-sm whitespace-nowrap" data-colkey="__actions">
+            <div class="flex space-x-2">
+              <button class="text-primary hover:text-primary/80 transition-all edit-btn" data-id="${escapeHtml(item.id)}" title="编辑整行">
+                <i data-lucide="edit-2" class="h-4 w-4"></i>
+              </button>
+              <button class="text-danger hover:text-danger/80 transition-all delete-btn" data-id="${escapeHtml(item.id)}" title="删除">
+                <i data-lucide="trash-2" class="h-4 w-4"></i>
+              </button>
+            </div>
+          </td>
+        `;
+
+        row.innerHTML = html;
+        tableBody.appendChild(row);
+      });
+
+      bindCellEditEvents();
+      applyHiddenColumnsByKey();
+      lucide.createIcons();
+    }
+
+    // 单元格编辑（点击编辑）
+    function bindCellEditEvents() {
+      document.querySelectorAll('.editable-cell').forEach(cell => {
+        const row = cell.closest('tr');
+        if (row && row.classList.contains('row-editing')) return;
+
+        cell.title = '单击编辑';
+        cell.addEventListener('click', () => startEditing(cell));
+      });
+
+      document.querySelectorAll('.status-select').forEach(select => {
+        const row = select.closest('tr');
+        if (row && row.classList.contains('row-editing')) return;
+
+        select.addEventListener('change', (e) => {
+          const tr = e.target.closest('tr');
+          const id = tr.getAttribute('data-id');
+          const value = e.target.value;
+
+          e.target.className = `status-select px-2 py-1 rounded-full text-xs font-medium ${getStatusClass(value)}`;
+          updateCellValue(id, 'status', value);
+        });
+      });
+    }
+
+    function startEditing(cell) {
+      if (cell.classList.contains('editing')) return;
+
+      const field = cell.getAttribute('data-field');
+      if (!field) return;
+
+      const tr = cell.closest('tr');
+      const id = tr.getAttribute('data-id');
+      const originalValue = cell.textContent;
+
+      cell.classList.add('editing');
+
+      const input = document.createElement('textarea');
+      input.value = originalValue;
+      input.className = 'w-full p-1 border border-primary rounded focus:outline-none focus:ring-1 focus:ring-primary';
+      input.style.minHeight = '36px';
+      input.style.resize = 'vertical';
+
+      cell.innerHTML = '';
+      cell.appendChild(input);
+      input.focus();
+
+      input.style.height = 'auto';
+      input.style.height = Math.max(input.scrollHeight, 36) + 'px';
+
+      input.addEventListener('input', () => {
+        input.style.height = 'auto';
+        input.style.height = Math.max(input.scrollHeight, 36) + 'px';
+      });
+
+      input.addEventListener('blur', () => {
+        const newValue = input.value;
+        cell.classList.remove('editing');
+        cell.textContent = newValue;
+        if (newValue !== originalValue) {
+          updateCellValue(id, field, newValue);
+        }
+      });
+
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          input.blur();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          cell.classList.remove('editing');
+          cell.textContent = originalValue;
+        }
+      });
+    }
+
+    function updateCellValue(id, field, value) {
+      const idx = literatureData.findIndex(x => x.id === id);
+      if (idx === -1) return;
+
+      literatureData[idx][field] = value;
+      saveData();
+      showToast('success', '数据已更新');
+    }
+
+    // =========================
+    // 行编辑（整行编辑）
+    // =========================
+    function startRowEditing(id) {
+      const row = document.querySelector(`tr[data-id="${CSS.escape(id)}"]`);
+      if (!row || row.classList.contains('row-editing')) return;
+
+      row.classList.add('row-editing', 'bg-blue-50');
+      const item = literatureData.find(x => x.id === id);
+      if (!item) return;
+
+      const cols = getAllColumns();
+
+      cols.forEach(c => {
+        if (hiddenColKeys.includes(c.key)) return;
+
+        const cell = row.querySelector(`td[data-colkey="${CSS.escape(c.key)}"]`);
+        if (!cell) return;
+
+        if (c.isStatus) {
+          const input = document.createElement('select');
+          input.className = 'w-full p-1 border border-primary rounded focus:outline-none focus:ring-1 focus:ring-primary';
+          input.innerHTML = `
+            <option value="未读" ${(item.status || '未读') === '未读' ? 'selected' : ''}>未读</option>
+            <option value="在读" ${(item.status || '') === '在读' ? 'selected' : ''}>在读</option>
+            <option value="已读" ${(item.status || '') === '已读' ? 'selected' : ''}>已读</option>
+          `;
+          cell.innerHTML = '';
+          cell.appendChild(input);
+          return;
+        }
+
+        const input = document.createElement('textarea');
+        input.value = item[c.key] || '';
+        input.className = 'w-full p-1 border border-primary rounded focus:outline-none focus:ring-1 focus:ring-primary';
+        input.style.minHeight = '36px';
+        input.style.resize = 'vertical';
+        input.style.height = 'auto';
+        input.style.height = Math.max(input.scrollHeight, 36) + 'px';
+        input.addEventListener('input', () => {
+          input.style.height = 'auto';
+          input.style.height = Math.max(input.scrollHeight, 36) + 'px';
+        });
+
+        cell.innerHTML = '';
+        cell.appendChild(input);
+      });
+
+      const actionCell = row.querySelector('td[data-colkey="__actions"]');
+      if (actionCell) {
+        actionCell.innerHTML = `
+          <div class="flex space-x-2">
+            <button class="text-green-600 hover:text-green-700 transition-all save-btn" data-id="${escapeHtml(id)}" title="保存">
+              <i data-lucide="check" class="h-4 w-4"></i>
+            </button>
+            <button class="text-gray-500 hover:text-gray-700 transition-all cancel-edit-btn" data-id="${escapeHtml(id)}" title="取消">
+              <i data-lucide="x" class="h-4 w-4"></i>
+            </button>
+          </div>
+        `;
+      }
+
+      applyHiddenColumnsByKey();
+      lucide.createIcons();
+    }
+
+    function saveRowEditing(id) {
+      const row = document.querySelector(`tr[data-id="${CSS.escape(id)}"]`);
+      if (!row || !row.classList.contains('row-editing')) return;
+
+      const item = literatureData.find(x => x.id === id);
+      if (!item) return;
+
+      const cols = getAllColumns();
+
+      let hasChanges = false;
+      cols.forEach(c => {
+        if (hiddenColKeys.includes(c.key)) return;
+        const cell = row.querySelector(`td[data-colkey="${CSS.escape(c.key)}"]`);
+        if (!cell) return;
+
+        const input = cell.querySelector('textarea, select');
+        if (!input) return;
+
+        const value = input.value;
+        if (item[c.key] !== value) {
+          item[c.key] = value;
+          hasChanges = true;
+        }
+      });
+
+      if (!String(item.title || '').trim()) {
+        showToast('error', '论文标题不能为空');
+        return;
+      }
+
+      if (hasChanges) {
+        saveData();
+        showToast('success', '数据已更新');
+      }
+
+      cancelRowEditing(id);
+    }
+
+    function cancelRowEditing(id) {
+      const row = document.querySelector(`tr[data-id="${CSS.escape(id)}"]`);
+      if (!row || !row.classList.contains('row-editing')) return;
+
+      row.classList.remove('row-editing', 'bg-blue-50');
+      renderTable();
+    }
+
+    // =========================
+    // 新增行/删除行
+    // =========================
+    function generateId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    }
+
+    function addNewRow() {
+      const id = generateId();
+      const item = { id, status: '未读' };
+
+      getAllColumns().forEach(c => {
+        if (!c.isStatus) item[c.key] = '';
+      });
+
+      literatureData.push(item);
+      saveData();
+      renderTable();
+
+      startRowEditing(id);
+
+      const newRow = document.querySelector(`tr[data-id="${CSS.escape(id)}"]`);
+      if (newRow) newRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function confirmDeleteModal(id) {
+      deleteId = id;
+      deleteModal.classList.remove('hidden');
+    }
+    function closeDeleteModal() {
+      deleteModal.classList.add('hidden');
+      deleteId = null;
+    }
+    function confirmDelete() {
+      if (!deleteId) return;
+      const idx = literatureData.findIndex(x => x.id === deleteId);
+      if (idx !== -1) {
+        literatureData.splice(idx, 1);
+        saveData();
+        renderTable();
+        showToast('success', '记录删除成功');
+      }
+      closeDeleteModal();
+    }
+
+    // =========================
+    // 标题/列标题编辑
+    // =========================
+    function bindTitleEvents() {
+      const appTitle = document.getElementById('appTitle');
+      const saveTitleBtn = document.getElementById('saveTitleBtn');
+
+      appTitle.addEventListener('focus', () => {
+        originalTitle = appTitle.textContent;
+        saveTitleBtn.classList.remove('hidden');
+      });
+
+      appTitle.addEventListener('blur', () => {
+        saveTitleBtn.classList.add('hidden');
+      });
+
+      appTitle.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          appTitle.blur();
+          const newTitle = appTitle.textContent.trim() || originalTitle;
+          appTitle.textContent = newTitle;
+          saveCustomTitle(newTitle);
+          if (newTitle !== originalTitle) showToast('success', '标题已更新');
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          appTitle.textContent = originalTitle;
+          appTitle.blur();
+        }
+      });
+
+      saveTitleBtn.addEventListener('click', () => {
+        const newTitle = appTitle.textContent.trim() || originalTitle;
+        appTitle.textContent = newTitle;
+        saveCustomTitle(newTitle);
+        saveTitleBtn.classList.add('hidden');
+        if (newTitle !== originalTitle) showToast('success', '标题已更新');
+      });
+    }
+
+    function bindHeaderEditEvents() {
+      const thead = document.querySelector('#literatureTable thead');
+      if (!thead) return;
+
+      thead.addEventListener('click', (e) => {
+        const delBtn = e.target.closest('.delete-col-btn');
+        if (delBtn) return;
+
+        const th = e.target.closest('th.editable-header');
+        if (!th) return;
+
+        const key = th.getAttribute('data-colkey');
+        if (!key) return;
+        if (hiddenColKeys.includes(key)) return;
+
+        startHeaderEditing(th);
+      });
+    }
+
+    function startHeaderEditing(th) {
+      if (th.classList.contains('editing-header')) return;
+
+      const key = th.getAttribute('data-colkey');
+      const span = th.querySelector('.header-text');
+      originalHeaderValue = span ? span.textContent : th.textContent;
+
+      th.classList.add('editing-header');
+
+      const input = document.createElement('input');
+      input.value = originalHeaderValue;
+      input.className = 'bg-white text-gray-800 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary';
+      input.style.width = '100%';
+
+      th.innerHTML = '';
+      th.appendChild(input);
+      input.focus();
+      input.select();
+
+      const finish = () => finishHeaderEditing(th, key);
+      const cancel = () => cancelHeaderEditing(th, key);
+
+      input.addEventListener('blur', finish);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          finish();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          cancel();
+        }
+      });
+    }
+
+    function finishHeaderEditing(th, key) {
+      const input = th.querySelector('input');
+      if (!input) return;
+
+      const newValue = input.value.trim() || originalHeaderValue;
+
+      // 表头不换行：whitespace-nowrap 由 th 的 class 保持（这里不重建 class，只重建内容）
+      th.innerHTML = `
+        <div class="flex items-center justify-between gap-2">
+          <span class="header-text">${escapeHtml(newValue)}</span>
+          <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="${escapeHtml(key)}" title="删除该列（隐藏）">
+            <i data-lucide="trash-2" class="h-4 w-4"></i>
+          </button>
+        </div>
+      `;
+      th.classList.remove('editing-header');
+
+      const idx = customHeaders.findIndex(h => h.key === key);
+      if (idx !== -1) customHeaders[idx].text = newValue;
+      else customHeaders.push({ key, text: newValue });
+      saveCustomHeaders();
+
+      const cc = customColumns.find(c => c.key === key);
+      if (cc) { cc.label = newValue; saveCustomColumns(); }
+
+      bindDeleteColEventsByKey();
+      lucide.createIcons();
+
+      if (newValue !== originalHeaderValue) showToast('success', '列标题已更新');
+    }
+
+    function cancelHeaderEditing(th, key) {
+      th.innerHTML = `
+        <div class="flex items-center justify-between gap-2">
+          <span class="header-text">${escapeHtml(originalHeaderValue)}</span>
+          <button type="button" class="delete-col-btn text-white/80 hover:text-white" data-colkey="${escapeHtml(key)}" title="删除该列（隐藏）">
+            <i data-lucide="trash-2" class="h-4 w-4"></i>
+          </button>
+        </div>
+      `;
+      th.classList.remove('editing-header');
+      bindDeleteColEventsByKey();
+      lucide.createIcons();
+    }
+
+    // =========================
+    // 新增列
+    // =========================
+    function addNewColumn() {
+      const label = prompt('请输入新列名称：');
+      if (!label || !label.trim()) return;
+
+      const key = makeColKey();
+      customColumns.push({ key, label: label.trim() });
+      saveCustomColumns();
+
+      literatureData.forEach(item => { item[key] = item[key] || ''; });
+      saveData();
+
+      renderCustomHeaderColumns();
+      renderTable();
+
+      showToast('success', '新列已添加');
+    }
+
+    // =========================
+    // 导出 Excel（包含自定义列，跳过隐藏列）
+    // =========================
+    function exportToExcel() {
+      if (literatureData.length === 0) {
+        showToast('error', '没有数据可导出');
+        return;
+      }
+
+      try {
+        const cols = getAllColumns().filter(c => !hiddenColKeys.includes(c.key));
+
+        const labelMap = {};
+        fixedColumns.forEach(c => labelMap[c.key] = c.label);
+        customColumns.forEach(c => labelMap[c.key] = c.label);
+        customHeaders.forEach(h => { labelMap[h.key] = h.text; });
+
+        const exportData = literatureData.map((item, index) => {
+          const row = { '序号': index + 1 };
+          cols.forEach(c => {
+            row[labelMap[c.key] || c.label || c.key] = item[c.key] || '';
+          });
+          return row;
+        });
+
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(exportData);
+
+        const colWidths = [{ wch: 6 }];
+        cols.forEach(c => {
+          colWidths.push({ wch: longTextKeys.has(c.key) ? 30 : 16 });
+        });
+        ws['!cols'] = colWidths;
+
+        XLSX.utils.book_append_sheet(wb, ws, '文献阅读表');
+        const fileName = `文献阅读表_${new Date().toISOString().split('T')[0]}.xlsx`;
+        XLSX.writeFile(wb, fileName);
+
+        showToast('success', 'Excel导出成功');
+      } catch (err) {
+        console.error(err);
+        showToast('error', '导出Excel失败，请重试');
+      }
+    }
+
+    // =========================
+    // 状态样式 / Toast
+    // =========================
+    function getStatusClass(status) {
+      switch (status) {
+        case '未读': return 'bg-red-100 text-red-800';
+        case '在读': return 'bg-yellow-100 text-yellow-800';
+        case '已读': return 'bg-green-100 text-green-800';
+        default: return 'bg-gray-100 text-gray-800';
+      }
+    }
+
+    function showToast(type, message) {
+      if (type === 'success') {
+        toastIcon.innerHTML = '<i data-lucide="check-circle" class="h-5 w-5 text-green-500"></i>';
+      } else if (type === 'error') {
+        toastIcon.innerHTML = '<i data-lucide="x-circle" class="h-5 w-5 text-red-500"></i>';
+      } else if (type === 'warning') {
+        toastIcon.innerHTML = '<i data-lucide="alert-triangle" class="h-5 w-5 text-yellow-500"></i>';
+      } else {
+        toastIcon.innerHTML = '<i data-lucide="info" class="h-5 w-5 text-blue-500"></i>';
+      }
+
+      toastMessage.textContent = message;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      lucide.createIcons();
+
+      setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
+    }
+
+    // =========================
+    // 事件绑定
+    // =========================
+    function bindEvents() {
+      document.getElementById('addNewRowTopBtn').addEventListener('click', addNewRow);
+      document.getElementById('addNewRowBtn').addEventListener('click', addNewRow);
+      document.getElementById('addColumnBtn').addEventListener('click', addNewColumn);
+      exportExcelBtn.addEventListener('click', exportToExcel);
+
+      tableBody.addEventListener('click', (e) => {
+        const editBtn = e.target.closest('.edit-btn');
+        const deleteBtn = e.target.closest('.delete-btn');
+        const saveBtn = e.target.closest('.save-btn');
+        const cancelEditBtn = e.target.closest('.cancel-edit-btn');
+
+        if (editBtn) startRowEditing(editBtn.getAttribute('data-id'));
+        if (deleteBtn) confirmDeleteModal(deleteBtn.getAttribute('data-id'));
+        if (saveBtn) saveRowEditing(saveBtn.getAttribute('data-id'));
+        if (cancelEditBtn) cancelRowEditing(cancelEditBtn.getAttribute('data-id'));
+      });
+
+      cancelDeleteBtn.addEventListener('click', closeDeleteModal);
+      confirmDeleteBtn.addEventListener('click', confirmDelete);
+      deleteModal.addEventListener('click', (e) => { if (e.target === deleteModal) closeDeleteModal(); });
+
+      bindTitleEvents();
+      bindHeaderEditEvents();
+      bindDeleteColEventsByKey();
+    }
+
+    // =========================
+    // 工具：HTML 转义
+    // =========================
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    // =========================
+    // 初始化
+    // =========================
+    function initApp() {
+      loadData();
+      loadCustomTitle();
+      loadCustomColumns();
+      loadHiddenColKeys();
+      loadCustomHeaders();
+
+      renderCustomHeaderColumns();
+      renderTable();
+      bindEvents();
+
+      applyHiddenColumnsByKey();
+      lucide.createIcons();
+    }
+
+    document.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+</html>
