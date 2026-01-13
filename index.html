@@ -323,6 +323,10 @@
           <button id="pushBtn" class="px-4 py-2 bg-primary text-white rounded">推送</button>
           <button id="autoSyncToggle" class="px-3 py-2 border border-gray-300 text-gray-700 rounded">开启自动同步</button>
         </div>
+        <div class="flex items-center gap-2">
+          <input id="syncSecretInput" placeholder="同步密钥 (可选)" class="p-2 border border-gray-200 rounded text-sm" />
+          <button id="testPullBtn" class="px-3 py-1 border border-gray-300 rounded text-sm">测试拉取</button>
+        </div>
         <div id="syncStatus" class="text-sm text-gray-500">状态：未同步</div>
       </div>
       <div class="flex justify-end">
@@ -1305,20 +1309,31 @@
       try {
         updateSyncStatus('正在推送...');
         const payload = { literatureData, customColumns, customHeaders, hiddenColKeys, title: document.getElementById('appTitle').textContent };
-        const r = await fetch('/api/push', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ username: currentUser, payload }) });
-        const j = await r.json();
-        if (!r.ok) { updateSyncStatus('推送失败'); showToast('error', `推送失败：${j.error||j.message}`); return; }
+        const headers = { 'Content-Type':'application/json' };
+        const secret = document.getElementById('syncSecretInput')?.value?.trim();
+        if (secret) headers['x-sync-secret'] = secret;
+        const r = await fetch('/api/push', { method: 'POST', headers, body: JSON.stringify({ username: currentUser, payload }) });
+        const j = await r.json().catch(()=>null);
+        if (!r.ok) { const msg = (j && (j.error||j.message)) || r.statusText || '未知错误'; updateSyncStatus(`推送失败: ${msg}`); showToast('error', `推送失败：${msg}`); return; }
         updateSyncStatus('已推送'); showToast('success', '数据已推送到仓库');
-      } catch (err) { console.error(err); updateSyncStatus('推送出错'); showToast('error', '推送出错'); }
+      } catch (err) { console.error(err); updateSyncStatus(`推送出错: ${err.message||err}`); showToast('error', `推送出错：${err.message||err}`); }
     }
 
     async function remotePull() {
       if (!currentUser) { showToast('error', '请先登录'); return; }
       try {
         updateSyncStatus('正在拉取...');
-        const r = await fetch(`/api/pull?username=${encodeURIComponent(currentUser)}`);
-        const j = await r.json();
-        if (!r.ok) { updateSyncStatus('拉取失败'); showToast('error', `拉取失败：${j.error||j.message}`); return; }
+        const secret = document.getElementById('syncSecretInput')?.value?.trim();
+        const headers = {};
+        if (secret) headers['x-sync-secret'] = secret;
+        const r = await fetch(`/api/pull?username=${encodeURIComponent(currentUser)}`, { headers });
+        const j = await r.json().catch(()=>null);
+        if (!r.ok) {
+          const msg = (j && (j.error||j.message)) || r.statusText || '未知错误';
+          updateSyncStatus(`拉取失败: ${msg}`);
+          showToast('error', `拉取失败：${msg}`);
+          return;
+        }
         // merge strategy: overwrite local with remote for PoC
         if (j && j.file && j.file.data) {
           const remote = j.file.data;
@@ -1334,7 +1349,7 @@
         } else {
           updateSyncStatus('无远端数据'); showToast('warning','远端没有数据');
         }
-      } catch (err) { console.error(err); updateSyncStatus('拉取出错'); showToast('error','拉取出错'); }
+      } catch (err) { console.error(err); updateSyncStatus(`拉取出错: ${err.message||err}`); showToast('error', `拉取出错：${err.message||err}`); }
     }
 
     document.addEventListener('DOMContentLoaded', initApp);

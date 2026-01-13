@@ -31,5 +31,11 @@ test('sync push and pull flows (mocked)', async ({ page }) => {
 
   // pull should merge remote data
   await page.click('#pullBtn');
+  await expect(page.locator('#syncStatus')).toContainText('已拉取');
   await expect(page.locator('td[data-colkey="title"]')).toContainText('Remote Paper');
+
+  // test secret input: set a value and ensure it doesn't break calls
+  await page.fill('#syncSecretInput', 'mysecret');
+  await page.click('#pullBtn');
+  await expect(page.locator('#syncStatus')).toContainText('已拉取');
 });
