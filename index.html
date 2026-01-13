@@ -95,7 +95,7 @@
         </div>
 
         <!-- 右侧按钮区：新增列在“添加新行”左边 -->
-        <div class="flex space-x-4">
+        <div class="flex space-x-4 items-center">
           <button id="addColumnBtn" class="bg-white text-primary px-4 py-2 rounded-md flex items-center hover:bg-gray-100 transition-all">
             <i data-lucide="columns-3" class="mr-2 h-4 w-4"></i>
             新增列
@@ -110,6 +110,12 @@
             <i data-lucide="download" class="mr-2 h-4 w-4"></i>
             导出Excel
           </button>
+
+          <div id="userInfo" class="text-white/80 hidden flex items-center space-x-2">
+            <i data-lucide="user" class="h-4 w-4"></i>
+            <span id="currentUserName" class="text-sm"></span>
+            <button id="logoutBtn" class="ml-2 bg-white text-primary px-3 py-1 rounded hidden">退出</button>
+          </div>
         </div>
       </div>
     </header>
@@ -276,6 +282,27 @@
     </div>
   </div>
 
+  <!-- 认证模态（登录 / 注册） -->
+  <div id="authModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+      <div class="p-6">
+        <h3 class="text-lg font-bold text-gray-800 mb-4">用户登录 / 注册</h3>
+        <div class="space-y-3">
+          <input id="authUsernameInput" placeholder="用户名" class="w-full p-2 border border-gray-300 rounded" />
+          <input id="authPasswordInput" placeholder="密码" type="password" class="w-full p-2 border border-gray-300 rounded" />
+          <div id="authMessage" class="text-sm text-red-500 hidden"></div>
+          <div class="flex justify-between items-center mt-4">
+            <div class="space-x-2">
+              <button id="authLoginBtn" class="px-4 py-2 bg-primary text-white rounded">登录</button>
+              <button id="authRegisterBtn" class="px-4 py-2 border border-primary text-primary rounded">注册</button>
+            </div>
+            <button id="authGuestBtn" class="px-3 py-2 text-gray-600 hover:underline">以访客身份继续</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div id="toast" class="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg p-4 transform translate-y-20 opacity-0 transition-all duration-300 z-50 max-w-sm">
     <div class="flex items-center">
@@ -288,8 +315,9 @@
     lucide.createIcons();
 
     // =========================
-    // 数据与配置
+    // 数据与配置（含简单客户端认证）
     // =========================
+    // 全局（针对当前已登录用户）数据
     let literatureData = [];
     let deleteId = null;
 
@@ -308,6 +336,12 @@
 
     // 只有这些“长文本列”允许换行
     const longTextKeys = new Set(['title', 'improvement', 'innovation', 'method', 'notes']);
+
+    // 认证相关
+    // users: { username: { passwordHash, createdAt } }
+    let users = {};
+    // 当前登录用户名（null 表示未登录）
+    let currentUser = null;
 
     const fixedColumns = [
       { key: 'title', label: '论文标题' },
@@ -340,19 +374,120 @@
     const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
 
     // =========================
-    // localStorage
+    // localStorage / 用户管理
     // =========================
+    // 密码哈希（使用 Web Crypto SHA-256）
+    async function hashPassword(password) {
+      const enc = new TextEncoder();
+      const buf = await crypto.subtle.digest('SHA-256', enc.encode(password));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // 将本地存储 key 绑定到当前用户（如果未登录则使用原始 key ）
+    function storageKey(key) {
+      return currentUser ? `${key}_${currentUser}` : key;
+    }
+
+    // 用户列表
+    async function loadUsers() {
+      const saved = localStorage.getItem('yoloUsers');
+      users = saved ? JSON.parse(saved) : {};
+    }
+    function saveUsers() {
+      localStorage.setItem('yoloUsers', JSON.stringify(users));
+    }
+
+    // 供界面调用的注册/登录/登出逻辑
+    function showAuthModal(message) {
+      const authModal = document.getElementById('authModal');
+      const authMessage = document.getElementById('authMessage');
+      if (message) { authMessage.textContent = message; authMessage.classList.remove('hidden'); }
+      else { authMessage.classList.add('hidden'); }
+      authModal.classList.remove('hidden');
+      document.getElementById('authUsernameInput').focus();
+    }
+    function hideAuthModal() {
+      document.getElementById('authModal').classList.add('hidden');
+      document.getElementById('authUsernameInput').value = '';
+      document.getElementById('authPasswordInput').value = '';
+      document.getElementById('authMessage').classList.add('hidden');
+    }
+
+    async function registerUser() {
+      const u = document.getElementById('authUsernameInput').value.trim();
+      const p = document.getElementById('authPasswordInput').value;
+      if (!u || !p) { showAuthModal('请输入用户名和密码'); return; }
+      if (users[u]) { showAuthModal('用户名已存在，请直接登录'); return; }
+      const h = await hashPassword(p);
+      users[u] = { passwordHash: h, createdAt: Date.now() };
+      saveUsers();
+      localStorage.setItem('yoloCurrentUser', u);
+      currentUser = u;
+      hideAuthModal();
+      showToast('success', '注册并登录成功');
+      await initForUser(true);
+    }
+
+    async function loginUser() {
+      const u = document.getElementById('authUsernameInput').value.trim();
+      const p = document.getElementById('authPasswordInput').value;
+      if (!u || !p) { showAuthModal('请输入用户名和密码'); return; }
+      const info = users[u];
+      if (!info) { showAuthModal('用户不存在，请先注册'); return; }
+      const h = await hashPassword(p);
+      if (h !== info.passwordHash) { showAuthModal('密码不正确'); return; }
+      localStorage.setItem('yoloCurrentUser', u);
+      currentUser = u;
+      hideAuthModal();
+      showToast('success', '登录成功');
+      await initForUser(false);
+    }
+
+    function logoutUser() {
+      localStorage.removeItem('yoloCurrentUser');
+      currentUser = null;
+      location.reload();
+    }
+
+    // 绑定认证相关事件（无论是否已登录都应该存在）
+    function bindAuthEvents() {
+      const loginBtn = document.getElementById('authLoginBtn');
+      const regBtn = document.getElementById('authRegisterBtn');
+      const guestBtn = document.getElementById('authGuestBtn');
+      const logoutBtn = document.getElementById('logoutBtn');
+
+      if (loginBtn) loginBtn.addEventListener('click', () => loginUser());
+      if (regBtn) regBtn.addEventListener('click', () => registerUser());
+      if (guestBtn) guestBtn.addEventListener('click', () => {
+        // 访客模式：使用匿名用户名 guest_<ts>
+        const guest = 'guest_' + Date.now().toString(36).slice(-6);
+        users[guest] = { passwordHash: null, createdAt: Date.now(), guest: true };
+        saveUsers();
+        localStorage.setItem('yoloCurrentUser', guest);
+        currentUser = guest;
+        hideAuthModal();
+        showToast('success', '以访客身份继续');
+        initForUser(true);
+      });
+      if (logoutBtn) logoutBtn.addEventListener('click', logoutUser);
+
+      // 支持回车触发登录
+      const pwInput = document.getElementById('authPasswordInput');
+      if (pwInput) pwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loginUser(); });
+    }
+
+    // 数据加载保存（围绕 storageKey）
     function loadData() {
-      const saved = localStorage.getItem('yoloLiteratureData');
+      const saved = localStorage.getItem(storageKey('yoloLiteratureData'));
       literatureData = saved ? JSON.parse(saved) : [];
     }
     function saveData() {
-      localStorage.setItem('yoloLiteratureData', JSON.stringify(literatureData));
+      localStorage.setItem(storageKey('yoloLiteratureData'), JSON.stringify(literatureData));
     }
 
     function loadCustomTitle() {
       const appTitleEl = document.getElementById('appTitle');
-      const savedTitle = localStorage.getItem('yoloLiteratureTitle');
+      const savedTitle = localStorage.getItem(storageKey('yoloLiteratureTitle'));
 
       const newDefault = '文献阅读表';
       const oldDefault = 'YOLO改进文献阅读表';
@@ -363,38 +498,38 @@
       }
       if (savedTitle === oldDefault) {
         appTitleEl.textContent = newDefault;
-        localStorage.setItem('yoloLiteratureTitle', newDefault);
+        localStorage.setItem(storageKey('yoloLiteratureTitle'), newDefault);
         return;
       }
       appTitleEl.textContent = savedTitle;
     }
     function saveCustomTitle(title) {
-      localStorage.setItem('yoloLiteratureTitle', title);
+      localStorage.setItem(storageKey('yoloLiteratureTitle'), title);
     }
 
     function loadCustomHeaders() {
-      const saved = localStorage.getItem('yoloLiteratureHeadersV2');
+      const saved = localStorage.getItem(storageKey('yoloLiteratureHeadersV2'));
       customHeaders = saved ? JSON.parse(saved) : [];
       applyCustomHeaders();
     }
     function saveCustomHeaders() {
-      localStorage.setItem('yoloLiteratureHeadersV2', JSON.stringify(customHeaders));
+      localStorage.setItem(storageKey('yoloLiteratureHeadersV2'), JSON.stringify(customHeaders));
     }
 
     function loadCustomColumns() {
-      const saved = localStorage.getItem('yoloLiteratureCustomColumns');
+      const saved = localStorage.getItem(storageKey('yoloLiteratureCustomColumns'));
       customColumns = saved ? JSON.parse(saved) : [];
     }
     function saveCustomColumns() {
-      localStorage.setItem('yoloLiteratureCustomColumns', JSON.stringify(customColumns));
+      localStorage.setItem(storageKey('yoloLiteratureCustomColumns'), JSON.stringify(customColumns));
     }
 
     function loadHiddenColKeys() {
-      const saved = localStorage.getItem('yoloLiteratureHiddenColKeys');
+      const saved = localStorage.getItem(storageKey('yoloLiteratureHiddenColKeys'));
       hiddenColKeys = saved ? JSON.parse(saved) : [];
     }
     function saveHiddenColKeys() {
-      localStorage.setItem('yoloLiteratureHiddenColKeys', JSON.stringify(hiddenColKeys));
+      localStorage.setItem(storageKey('yoloLiteratureHiddenColKeys'), JSON.stringify(hiddenColKeys));
     }
 
     function makeColKey() {
@@ -1076,9 +1211,9 @@
     }
 
     // =========================
-    // 初始化
+    // 初始化（区分已登录状态）
     // =========================
-    function initApp() {
+    async function initForUser(isJustRegistered = false) {
       loadData();
       loadCustomTitle();
       loadCustomColumns();
@@ -1091,6 +1226,40 @@
 
       applyHiddenColumnsByKey();
       lucide.createIcons();
+
+      // 显示用户信息
+      const userInfo = document.getElementById('userInfo');
+      const currentUserName = document.getElementById('currentUserName');
+      if (userInfo && currentUserName && currentUser) {
+        currentUserName.textContent = currentUser;
+        userInfo.classList.remove('hidden');
+        document.getElementById('logoutBtn').classList.remove('hidden');
+      }
+
+      // 如果用户还没有数据且存在旧的全局数据，询问是否导入
+      const legacy = localStorage.getItem('yoloLiteratureData');
+      if (!isJustRegistered && legacy && !localStorage.getItem(storageKey('yoloLiteratureData'))) {
+        if (confirm('检测到页面上存在未分配的旧数据，是否将其导入到当前账号？')) {
+          localStorage.setItem(storageKey('yoloLiteratureData'), legacy);
+          loadData();
+          renderTable();
+          showToast('success', '已导入旧数据到当前用户');
+        }
+      }
+    }
+
+    async function initApp() {
+      await loadUsers();
+      bindAuthEvents();
+
+      currentUser = localStorage.getItem('yoloCurrentUser') || null;
+      if (!currentUser) {
+        // 若未登录，显示登录框并等待用户操作
+        showAuthModal();
+        return;
+      }
+
+      await initForUser();
     }
 
     document.addEventListener('DOMContentLoaded', initApp);
