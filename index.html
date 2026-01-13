@@ -531,11 +531,7 @@
           } else {
             const v = item[c.key] || '';
 
-            const isLong = longTextKeys.has(c.key); // 只有这些列允许换行
-            const tdClass = isLong
-              ? 'px-4 py-3 text-sm editable-cell whitespace-normal break-words'
-              : 'px-4 py-3 text-sm editable-cell whitespace-nowrap';
-
+            const tdClass = 'px-4 py-3 text-sm editable-cell whitespace-normal break-words';
             html += `<td class="${tdClass}" data-field="${escapeHtml(c.key)}" data-colkey="${escapeHtml(c.key)}">${escapeHtml(v)}</td>`;
           }
         });
@@ -1101,4 +1097,5 @@
   </script>
 </body>
 </html>
+
 
