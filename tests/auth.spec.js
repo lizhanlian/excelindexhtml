@@ -24,7 +24,8 @@ test('register, login, and data isolation between users', async ({ page }) => {
   await expect(page.locator('#currentUserName')).toHaveText(userA);
 
   // Add a new row and fill title, then save
-  await page.click('#addNewRowBtn');
+  // Footer button is hidden when table is empty; use the top button which is always visible
+  await page.click('#addNewRowTopBtn');
   await expect(page.locator('tr.row-editing')).toBeVisible();
 
   // Fill title textarea in row editing
