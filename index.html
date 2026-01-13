@@ -115,6 +115,7 @@
             <i data-lucide="user" class="h-4 w-4"></i>
             <span id="currentUserName" class="text-sm"></span>
             <button id="logoutBtn" class="ml-2 bg-white text-primary px-3 py-1 rounded hidden">退出</button>
+            <button id="syncBtn" title="GitHub 同步" class="ml-2 bg-white text-primary px-3 py-1 rounded hidden">同步</button>
           </div>
         </div>
       </div>
@@ -308,6 +309,25 @@
     <div class="flex items-center">
       <div id="toastIcon" class="mr-3"></div>
       <div id="toastMessage" class="text-sm font-medium text-gray-800"></div>
+    </div>
+  </div>
+
+  <!-- 同步模态 -->
+  <div id="syncModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+      <h3 class="text-lg font-bold mb-4">GitHub 同步</h3>
+      <p class="text-sm text-gray-600 mb-3">提示：此操作会把当前用户的数据写入仓库 <code>data/&lt;username&gt;.json</code>（公开仓库会公开数据）。</p>
+      <div class="space-y-3 mb-4">
+        <div class="flex items-center gap-2">
+          <button id="pullBtn" class="px-4 py-2 border border-primary text-primary rounded">拉取</button>
+          <button id="pushBtn" class="px-4 py-2 bg-primary text-white rounded">推送</button>
+          <button id="autoSyncToggle" class="px-3 py-2 border border-gray-300 text-gray-700 rounded">开启自动同步</button>
+        </div>
+        <div id="syncStatus" class="text-sm text-gray-500">状态：未同步</div>
+      </div>
+      <div class="flex justify-end">
+        <button id="closeSyncModal" class="px-4 py-2 border border-gray-300 rounded">关闭</button>
+      </div>
     </div>
   </div>
 
@@ -1177,6 +1197,9 @@
       document.getElementById('addColumnBtn').addEventListener('click', addNewColumn);
       exportExcelBtn.addEventListener('click', exportToExcel);
 
+      const syncBtn = document.getElementById('syncBtn');
+      if (syncBtn) syncBtn.addEventListener('click', showSyncModal);
+
       tableBody.addEventListener('click', (e) => {
         const editBtn = e.target.closest('.edit-btn');
         const deleteBtn = e.target.closest('.delete-btn');
@@ -1234,6 +1257,7 @@
         currentUserName.textContent = currentUser;
         userInfo.classList.remove('hidden');
         document.getElementById('logoutBtn').classList.remove('hidden');
+        document.getElementById('syncBtn').classList.remove('hidden');
       }
 
       // 如果用户还没有数据且存在旧的全局数据，询问是否导入
@@ -1246,6 +1270,9 @@
           showToast('success', '已导入旧数据到当前用户');
         }
       }
+
+      // 尝试自动拉取远端同步（非强制）
+      try { await remotePullIfEnabled(); } catch (e) { console.warn('remote pull failed', e); }
     }
 
     async function initApp() {
@@ -1262,7 +1289,68 @@
       await initForUser();
     }
 
+    // ================
+    // GitHub 同步相关逻辑（前端 PoC）
+    // ================
+    function showSyncModal() {
+      document.getElementById('syncModal').classList.remove('hidden');
+      updateSyncStatus('就绪');
+    }
+    function hideSyncModal() { document.getElementById('syncModal').classList.add('hidden'); }
+
+    function updateSyncStatus(t) { const el = document.getElementById('syncStatus'); if (el) el.textContent = `状态：${t}`; }
+
+    async function remotePush() {
+      if (!currentUser) { showToast('error', '请先登录'); return; }
+      try {
+        updateSyncStatus('正在推送...');
+        const payload = { literatureData, customColumns, customHeaders, hiddenColKeys, title: document.getElementById('appTitle').textContent };
+        const r = await fetch('/api/push', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ username: currentUser, payload }) });
+        const j = await r.json();
+        if (!r.ok) { updateSyncStatus('推送失败'); showToast('error', `推送失败：${j.error||j.message}`); return; }
+        updateSyncStatus('已推送'); showToast('success', '数据已推送到仓库');
+      } catch (err) { console.error(err); updateSyncStatus('推送出错'); showToast('error', '推送出错'); }
+    }
+
+    async function remotePull() {
+      if (!currentUser) { showToast('error', '请先登录'); return; }
+      try {
+        updateSyncStatus('正在拉取...');
+        const r = await fetch(`/api/pull?username=${encodeURIComponent(currentUser)}`);
+        const j = await r.json();
+        if (!r.ok) { updateSyncStatus('拉取失败'); showToast('error', `拉取失败：${j.error||j.message}`); return; }
+        // merge strategy: overwrite local with remote for PoC
+        if (j && j.file && j.file.data) {
+          const remote = j.file.data;
+          // adopt remote data
+          literatureData = remote.data || [];
+          customColumns = remote.customColumns || [];
+          customHeaders = remote.customHeaders || [];
+          hiddenColKeys = remote.hiddenColKeys || [];
+          saveData(); saveCustomColumns(); saveCustomHeaders(); saveHiddenColKeys();
+          renderCustomHeaderColumns(); renderTable();
+          updateSyncStatus('已拉取');
+          showToast('success', '已从仓库拉取数据');
+        } else {
+          updateSyncStatus('无远端数据'); showToast('warning','远端没有数据');
+        }
+      } catch (err) { console.error(err); updateSyncStatus('拉取出错'); showToast('error','拉取出错'); }
+    }
+
     document.addEventListener('DOMContentLoaded', initApp);
+
+    // 绑定 sync 模态内按钮
+    document.addEventListener('click', (e) => {
+      if (e.target && e.target.id === 'closeSyncModal') hideSyncModal();
+      if (e.target && e.target.id === 'pushBtn') remotePush();
+      if (e.target && e.target.id === 'pullBtn') remotePull();
+      if (e.target && e.target.id === 'autoSyncToggle') {
+        const btn = e.target; const enabled = btn.dataset.enabled === '1';
+        if (!enabled) { btn.dataset.enabled = '1'; btn.textContent = '关闭自动同步'; showToast('success','自动同步已开启'); }
+        else { btn.dataset.enabled = '0'; btn.textContent = '开启自动同步'; showToast('success','自动同步已关闭'); }
+      }
+    });
+
   </script>
 </body>
 </html>
